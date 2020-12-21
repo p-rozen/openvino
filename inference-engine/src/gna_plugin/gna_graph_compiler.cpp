@@ -41,7 +41,7 @@ using namespace std;
 using namespace GNAPluginNS;
 
 #define CREATE(name) [](GNAGraphCompiler *p, CNNLayerPtr l) {p->name(l);}
-
+#define MAX_GNA_BATCH 1
 
 void GNAGraphCompiler::setGNAMemoryPtr(std::shared_ptr<GNAPluginNS::gna_memory_type> gnaMemPtr) {
     this->gnamem = std::move(gnaMemPtr);
@@ -241,8 +241,9 @@ void GNAGraphCompiler::ConvolutionPrimitive(InferenceEngine::CNNLayerPtr layer) 
         inputs->getLayout() != Layout::NC) {
         THROW_GNA_LAYER_EXCEPTION(layer) << "with layout " << inputs->getLayout() << " isn't currently supported on GNA";
     }
-
-    auto in_order = getFromIRDimsOrderNCHW(inputs->getLayout());
+    //auto input_layout_overwrite = outputs->getLayout();
+    auto input_layout_overwrite = Layout::NHWC;
+    auto in_order = getFromIRDimsOrderNCHW(input_layout_overwrite);
     auto in_batch = FROM_IR_DIM(inputs, in_order[0]);
     auto in_channels = FROM_IR_DIM(inputs, in_order[1]);
     auto in_height = FROM_IR_DIM(inputs, in_order[2]);
@@ -267,7 +268,7 @@ void GNAGraphCompiler::ConvolutionPrimitive(InferenceEngine::CNNLayerPtr layer) 
         // TODO: Issue 24839
         THROW_GNA_LAYER_EXCEPTION(layer) << "with dilation is not supported on GNA";
     }
-    if (inputs->getLayout() != Layout::NHWC && in_height != 1) {
+    if (input_layout_overwrite != Layout::NHWC && in_height != 1) {
         // TensorFlow default layout is NHWC
         // OpenVino Default layout is   NCHW
         // GNA Convolution input is     NHCW
@@ -889,7 +890,7 @@ void GNAGraphCompiler::CropPrimitive(InferenceEngine::CNNLayerPtr layer) {
 
         // cases for certain output layers
         for (auto&& outLayer : getInputTo(layer->outData.front())) {
-            auto& nextLayer = outLayer.second;
+            auto nextLayer = outLayer.second;
             if (LayerInfo(nextLayer).isConcat()) {
                 connectOutput(layer, &cropLayerInfo->second.gna_ptr, cropOutputSize);
             }

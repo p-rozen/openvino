@@ -210,6 +210,12 @@ DECL_PASS(FuseFQIntoWeights);
 DECL_PASS(MoveFakeQuantizeLayerIntoQuantParams);
 
 
+/**
+* @brief fuse broadcasted add with leading convolution
+*/
+DECL_PASS(FuseBiasesWithConv);
+
+
 struct PassManagerSettings {
     Policy policy;
     /// @brief whether to run passes before copy

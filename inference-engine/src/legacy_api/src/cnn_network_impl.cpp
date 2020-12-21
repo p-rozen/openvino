@@ -31,6 +31,8 @@
 #include "legacy/details/ie_cnn_network_tools.h"
 #include <legacy/cnn_network_impl.hpp>
 
+#define ENABLE_V7_SERIALIZE
+
 #ifdef ENABLE_V7_SERIALIZE
 # include "network_serializer_v7.hpp"
 #endif

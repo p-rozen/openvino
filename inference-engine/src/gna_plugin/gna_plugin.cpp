@@ -480,6 +480,7 @@ void GNAPlugin::LoadNetwork(CNNNetwork & _network) {
     int passIdx = 0;
     auto run_passes = [&] (const CNNNetPtr& network, bool runBeforeCopy) {
         auto passes = make_shared<PassManager>(PassManagerSettings{policy, runBeforeCopy}, network);
+        //passes->registerPass<FuseBiasesWithConvPass>();
         passes->registerPass<RemoveConstPass>();
         passes->registerPass<UnrollTIPass>();
         passes->registerPass<RemoveConstPass>();
