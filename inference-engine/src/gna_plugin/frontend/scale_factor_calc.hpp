@@ -17,6 +17,8 @@
 #include "gna_plugin_log.hpp"
 #include "gna_slope_scale.h"
 
+#define SCALE_FACTOR_GUARDBAND 1.25f
+
 namespace GNAPluginNS {
 namespace frontend {
 struct ScaleFactorUpdateResult {
@@ -52,8 +54,9 @@ class ScaleFactorPerLayer {
 template<>
 class ScaleFactorPerLayer<InferenceEngine::CNNLayer *> {
  private :
-    const float activation_scale_factor = 2048.f;
-    const float identity_scale_factor = 2049.0f;
+    const float activation_scale_factor = 2311.0f; //; 2311.f;
+    const float identity_scale_factor = 2309.0f;
+
     const float k = 5;
     const float k_identity = 6;
     const double pow_domain = 16;
@@ -68,6 +71,11 @@ class ScaleFactorPerLayer<InferenceEngine::CNNLayer *> {
                              QuantizedLayerParams const* quantizedParams) {
         // todo: calculate proper scale factor where we need to expand it a bit to be safe to stay in int16 weights
         // set the initial value
+        if (!layer.isClamp() && quantizedParams->_dst_quant.dynamic_range_set)
+        {
+            return (float)32768.0f / ceil(quantizedParams->_dst_quant.agg_dynamic_range * SCALE_FACTOR_GUARDBAND);
+        }
+
         float result = activation_scale_factor;
         if (layer.isIdentity()) {
 // #define accurate_identity_scale_factor
@@ -100,8 +108,7 @@ class ScaleFactorPerLayer<InferenceEngine::CNNLayer *> {
             // probing one more quite good approximation for identity
             s = gna_slope(1.0, quantizedParams->_src_quant.scale, identity_scale_factor / 2);
             auto scale_extra = s.slope * s.slope_scale;
-            result = fabs(scale_extra) > fabs(scale_default) ?  identity_scale_factor / 2 : identity_scale_factor;
-
+            result = fabs(scale_extra) > fabs(scale_default) ? identity_scale_factor / 2 : identity_scale_factor;
 #endif
         } else if (layer.isRelu() &&
                 static_cast<uint64_t>(activation_scale_factor * quantizedParams->_src_quant.scale)
@@ -134,6 +141,18 @@ class ScaleFactorPerLayer<InferenceEngine::CNNLayer *> {
                 result = scale_val;
             }
         }
+        else if (layer.isClamp())
+        {
+            auto clampLayer = dynamic_cast<InferenceEngine::ClampLayer const*>(cnnLayer);
+            if (!clampLayer) {
+                THROW_IE_EXCEPTION << "Incorrect Clamp Layer pointer \n";
+            }
+            float min = clampLayer->min_value < 0 ? -clampLayer->min_value : clampLayer->min_value;
+            float max = clampLayer->max_value < 0 ? -clampLayer->max_value : clampLayer->max_value;
+            float abs_max = min > max ? min : max;
+            result = (abs_max < 1) ? (float)INT16_MAX : (float)INT16_MAX / abs_max;
+        }
+
         return result;
     }
 
@@ -292,6 +311,7 @@ class ScaleFactorPerLayer<InferenceEngine::EltwiseLayer*> {
         if ( !eltwiseLayer ) {
             THROW_GNA_EXCEPTION << "Incorrect Eltwise Layer pointer \n";
         }
+        
         auto in0 = InferenceEngine::CNNNetPrevLayer(eltwiseLayer, 0);
         auto in1 = InferenceEngine::CNNNetPrevLayer(eltwiseLayer, 1);
 
@@ -396,7 +416,7 @@ class ScaleFactorPerLayer<InferenceEngine::ConcatLayer*> {
         if (concatLayer->insData.size() < 2) {
             THROW_GNA_EXCEPTION << "Concat layer has unsupported number of incoming layers.";
         }
-
+        
         auto fp32eq = [](float p1, float p2) -> bool {
             return (std::abs(p1 - p2) <= 0.00001f * std::min(std::abs(p1), std::abs(p2)));
         };
@@ -582,7 +602,7 @@ class ScaleFactorPerLayer<InferenceEngine::WeightableLayer*> {
         } else if (!wl->_weights) {
             THROW_GNA_EXCEPTION << "Incorrect weight value for " << wl->name << ":" << wl->type << "\n";
         }
-
+        
         auto prevLayer = CNNNetPrevLayer(wl);
         auto quantDataForInputLayer =
             InferenceEngine::getInjectedData<QuantizedLayerParams>(*InferenceEngine::CNNNetPrevLayer(wl).get());
@@ -595,12 +615,15 @@ class ScaleFactorPerLayer<InferenceEngine::WeightableLayer*> {
             if (weightsSize == 2) {
                 scaleRange = MAX_VAL_2B_WEIGHT;
             } else if (weightsSize == 1) {
-                scaleRange = MAX_VAL_1B_WEIGHT;
+                scaleRange = MAX_VAL_2B_WEIGHT;
             } else {
                 THROW_GNA_EXCEPTION << "Unsupported weights size of: " << weightsSize;
             }
             quant->_weights_quant.scale =
                 ScaleFactorForQuantization(wl->_weights->buffer().as<float *>(), scaleRange, wl->_weights->size());
+
+            quant->_weights_quant.dynamic_range = CalcDynamicRange(wl->_weights->buffer().as<float*>(), wl->_weights->size());
+
             if (quant->_weights_quant.scale == -1.0f) {
                 quant->_weights_quant.scale = 1.0f;
             }
@@ -612,12 +635,17 @@ class ScaleFactorPerLayer<InferenceEngine::WeightableLayer*> {
                 if (quant->_bias_quant.scale != -1.0f) {
                     quant->_bias_quant.scale = std::min(quant->_weights_quant.scale * quant->_src_quant.scale, quant->_bias_quant.scale);
                     quant->_weights_quant.scale = quant->_bias_quant.scale / quant->_src_quant.scale;
-                }
-            }
 
-            // TODO: findout why ???
-            if (weightsSize == 1) {
-                quant->_weights_quant.scale *= MAX_OUT_MULTIPLIER;
+                    if (quant->_dst_quant.dynamic_range_set)
+                    {
+                        float scale = MAX_VAL_4B_BIAS / ceil(quant->_dst_quant.agg_dynamic_range * SCALE_FACTOR_GUARDBAND);
+                        if (scale < quant->_bias_quant.scale)
+                        {
+                            quant->_bias_quant.scale = scale;
+                        }
+                    }
+                    quant->_weights_quant.scale = quant->_bias_quant.scale / quant->_src_quant.scale;
+                }
             }
 
             double weights_reducer = 1.0;
@@ -633,30 +661,6 @@ class ScaleFactorPerLayer<InferenceEngine::WeightableLayer*> {
 
 
         double tmp_dst_quant_scale = quant->_weights_quant.scale * quantDataForInputLayer->_dst_quant.scale;
-
-        if (weightsSize == 1 &&
-            static_cast<uint64_t>(tmp_dst_quant_scale * quant->_src_quant.scale) >
-                                                    static_cast<uint64_t>(std::numeric_limits<int32_t>::max()-1) * _scale_change_req_threshold) {
-            gnawarn() << "Output scale for " << wl->name
-                                            << " too large and are being reduced. Else saturations likely will happen \n";
-            // reduce weight scale according experimental heuristic
-            if (quant->_dst_quant.scale * quant->_src_quant.scale /
-                    static_cast<float>(std::numeric_limits<int32_t>::max()) < _scale_change_threshold_100) {
-                quant->_weights_quant.scale *= _scale_reduction_50;
-                tmp_dst_quant_scale *= _scale_reduction_50;
-            } else if (quant->_dst_quant.scale * quant->_src_quant.scale /
-                    static_cast<float>(std::numeric_limits<int32_t>::max()) < _scale_change_threshold_150) {
-                quant->_weights_quant.scale *= _scale_reduction_45;
-                tmp_dst_quant_scale *= _scale_reduction_45;
-            } else if (quant->_dst_quant.scale * quant->_src_quant.scale /
-                    static_cast<float>(std::numeric_limits<int32_t>::max()) < _scale_change_threshold_200) {
-                quant->_weights_quant.scale *= _scale_reduction_40;
-                tmp_dst_quant_scale *= _scale_reduction_40;
-            } else {
-                quant->_weights_quant.scale *= _scale_reduction_35;
-                tmp_dst_quant_scale *= _scale_reduction_35;
-            }
-        }
 
         quant->_dst_quant.scale = tmp_dst_quant_scale;
 
