@@ -920,11 +920,11 @@ void InsertCopyLayerPass::run() {
     // Crop output goes to concat layer -> copy layer insertion
     // Concat|Split|Crop layer goes to memory layer -> delayed copy layer insertion
     // One output goes to multiple concat and/or memory layers -> delayed copies before memory layers
-    // and copies before concay layers (one less copy than outputs)
+    // and copies before concat layers (one less copy than outputs)
     for (auto & l : *pLayers) {
         if (LayerInfo(l).isNonFunctional()) continue;
         // Crop -> Concat and Concat -> Memory cases
-        if ((LayerInfo(l).isCrop() && !LayerInfo(l).isCropAffined()) || LayerInfo(l).isConcat()) {
+        if ((LayerInfo(l).isCrop() && !LayerInfo(l).isCropAffined()) || LayerInfo(l).isConcat() || LayerInfo(l).isMemory()) {
             std::vector<std::tuple<CNNLayerPtr, CNNLayerPtr, size_t>> copy_insertion_tuples;
             std::vector<std::tuple<CNNLayerPtr, CNNLayerPtr, size_t>> delayed_copy_insertion_tuples;
 
@@ -952,8 +952,8 @@ void InsertCopyLayerPass::run() {
                     if ((LayerInfo(l).isConcat() || LayerInfo(l).isCrop() || LayerInfo(l).isSplit()) && LayerInfo(current_layer).isMemory()) {
                         // Concat|Split|Crop -> Memory case
                         delayed_copy_insertion_tuples.push_back(std::make_tuple(original_parent, original_child, input_idx));
-                    } else if (LayerInfo(l).isCrop() && LayerInfo(current_layer).isConcat()) {
-                        // Crop -> Concat case
+                    } else if ((LayerInfo(l).isCrop() || LayerInfo(l).isMemory()) && LayerInfo(current_layer).isConcat()) {
+                        // Crop|Memory -> Concat case
                         copy_insertion_tuples.push_back(std::make_tuple(original_parent, original_child, input_idx));
                     }
                 }

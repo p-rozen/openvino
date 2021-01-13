@@ -241,8 +241,8 @@ void GNAGraphCompiler::ConvolutionPrimitive(InferenceEngine::CNNLayerPtr layer) 
         inputs->getLayout() != Layout::NC) {
         THROW_GNA_LAYER_EXCEPTION(layer) << "with layout " << inputs->getLayout() << " isn't currently supported on GNA";
     }
-    //auto input_layout_overwrite = outputs->getLayout();
-    auto input_layout_overwrite = Layout::NHWC;
+    auto input_layout_overwrite = outputs->getLayout();
+    //auto input_layout_overwrite = Layout::NHWC;
     auto in_order = getFromIRDimsOrderNCHW(input_layout_overwrite);
     auto in_batch = FROM_IR_DIM(inputs, in_order[0]);
     auto in_channels = FROM_IR_DIM(inputs, in_order[1]);
@@ -274,6 +274,14 @@ void GNAGraphCompiler::ConvolutionPrimitive(InferenceEngine::CNNLayerPtr layer) 
         // GNA Convolution input is     NHCW
         // When layer layout is in NHWC it means that is was created by PassManager
         THROW_GNA_LAYER_EXCEPTION(layer) << "in_height != 1 This case requires additional Permute and it is not implemented yet";
+    }
+    // convolution over flat buffer
+    if (in_height == 1 && in_width == 1 && convolution._kernel_x > 1 && in_channels > 1 && (in_channels % convolution._kernel_x == 0))
+    {
+        in_width = in_channels / convolution._kernel_x;
+        in_channels = convolution._kernel_x;
+        convolution._stride_x /= convolution._kernel_x;
+        convolution._kernel_x = 1;
     }
     if (convolution._kernel_x > in_width * in_height) {
         THROW_GNA_LAYER_EXCEPTION(layer) << "Kernel dimensions are bigger than input dimensions. "
