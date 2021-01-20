@@ -843,13 +843,11 @@ void InsertCopyLayerPass::run() {
                             current_layer = next_layer;
                         }
 
-
                         if ((LayerInfo(l).isConcat() || LayerInfo(l).isCrop() || LayerInfo(l).isSplit()) && LayerInfo(current_layer).isMemory()) {
                             // Concat|Split|Crop -> Memory case
                             delayed_copy_insertion_tuples.push_back(std::make_tuple(original_parent, original_child, input_idx));
                         } else if ((LayerInfo(l).isSplit() || LayerInfo(l).isMemory() || LayerInfo(l).isCrop()) && LayerInfo(current_layer).isConcat()) {
                             // Split|Crop|Memory -> Concat case
-                            // concat may be connected to previous layer with multiple connections
                             copy_insertion_tuples.push_back(std::make_tuple(original_parent, original_child, input_idx));
                         }
                     }
