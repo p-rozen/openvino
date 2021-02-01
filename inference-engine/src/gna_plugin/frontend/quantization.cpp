@@ -16,6 +16,15 @@
 #define QUANTWARNING(...)
 #endif
 
+float CalcDynamicRange(void* ptr_float_memory, size_t num_elements) {
+    float* ptr_float_feat = reinterpret_cast<float*>(ptr_float_memory);
+    float max = 0.0f;
+    for (size_t i = 0; i < num_elements; i++) {
+        float abs_value = fabs(ptr_float_feat[i]);
+        max = max > abs_value ? max : abs_value;
+    }
+    return (max);
+}
 
 template<>
 void QuantizationCallback<int16_t, int32_t>::runFakeQuantize() const {

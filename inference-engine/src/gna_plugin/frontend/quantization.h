@@ -17,6 +17,8 @@
 #define MAX_VAL_2B_FEAT 16384
 #define MAX_VAL_4B_BIAS 1073741824
 
+float CalcDynamicRange(void* ptr_float_memory, size_t num_elements);
+
 template <class WeightsType,  class BiasType>
 struct QuantizationCallback {
     float *ptr_float_weights;

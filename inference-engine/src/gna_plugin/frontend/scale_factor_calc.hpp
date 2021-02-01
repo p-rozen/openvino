@@ -650,9 +650,17 @@ class ScaleFactorPerLayer<InferenceEngine::WeightableLayer*> {
                 quant->_bias_quant.SetScale(ScaleFactorForQuantization(wl->_biases->buffer().as<float *>(),
                                                                       MAX_VAL_4B_BIAS,
                                                                       wl->_biases->size()));
+                quant->_bias_quant.SetDynamicRange(CalcDynamicRange(wl->_biases->buffer().as<float*>(), wl->_biases->size()));
                 if (quant->_bias_quant.GetScale() != -1.0f) {
                     quant->_bias_quant.SetScale(
                         std::min(quant->_weights_quant.GetScale() * quant->_src_quant.GetScale(), quant->_bias_quant.GetScale()));
+
+                    if (quant->_dst_quant.IsAgregatedDynamicRangeSet())
+                    {
+                        float scale = MAX_VAL_4B_BIAS / ceil(quant->_dst_quant.GetAgregatedDynamicRange() * SCALE_FACTOR_GUARDBAND);
+                        quant->_bias_quant.SetScale(std::min(scale, quant->_bias_quant.GetScale()));
+                    }
+
                     quant->_weights_quant.SetScale(quant->_bias_quant.GetScale() / quant->_src_quant.GetScale());
                 }
             }
