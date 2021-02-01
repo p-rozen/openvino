@@ -214,6 +214,11 @@ class LayerInfo {
     bool isPermute() const noexcept {
         return isOfType("permute");
     }
+    bool isChangingDynamicRange() {
+        if (isNonFunctional() || isPermute() || isSplit() || isSlice() || isConst() || isCopy() || isMemory() || isCrop() || isIdentity())
+            return false;
+        return (isFullyConnected() || isConvolution() || isActivation() || isScaleShift() || isEltwise() || isPower());
+    }
     // @brief this not only mathematically trivial, has some WA for kaldi case
     bool isTrivialPermute() const {
         if (!isPermute()) return false;

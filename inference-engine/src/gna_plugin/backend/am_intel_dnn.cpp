@@ -24,6 +24,7 @@
 #include "dnn_types.h"
 #include "gna_types.h"
 #include "gna_limitations.hpp"
+#include "stats_dao.hpp"
 
 #if GNA_LIB_VER == 2
 #include <gna2-model-api.h>

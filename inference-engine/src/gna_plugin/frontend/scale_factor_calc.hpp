@@ -64,14 +64,14 @@ class ScaleFactorPerLayer<InferenceEngine::CNNLayer *> {
     }
 
     float getActivationScale(InferenceEngine::CNNLayer const* cnnLayer,
-                             GNAPluginNS::LayerInfo const& layer) {
+        GNAPluginNS::LayerInfo const& layer) {
         auto quantizedParams = InferenceEngine::getInjectedData<QuantizedLayerParams>(*cnnLayer);
 
         // todo: calculate proper scale factor where we need to expand it a bit to be safe to stay in int16 weights
         // set the initial value
         float result = activation_scale_factor;
         if (layer.isIdentity()) {
-// #define accurate_identity_scale_factor
+            // #define accurate_identity_scale_factor
 #ifdef accurate_identity_scale_factor
             // searching more accurate scale factor for identity
             const double min_range = 1024.0;
@@ -81,7 +81,7 @@ class ScaleFactorPerLayer<InferenceEngine::CNNLayer *> {
             double optimalK = 0.0f;
             result = min_range;
 
-            for (int slope_scale_index = 1; slope_scale_index != 5; slope_scale_index ++) {
+            for (int slope_scale_index = 1; slope_scale_index != 5; slope_scale_index++) {
                 auto slope_scale = static_cast<double>(static_cast<uint64_t>(1) << (8 * slope_scale_index));
                 auto mink = min_range * slope_scale / quantizedParams->_src_quant.GetScale();
                 auto maxk = max_range * slope_scale / quantizedParams->_src_quant.GetScale();
@@ -89,7 +89,7 @@ class ScaleFactorPerLayer<InferenceEngine::CNNLayer *> {
                 if (mink < std::numeric_limits<int16_t>::max()) {
                     auto localMaxK = std::min(static_cast<double>(std::numeric_limits<int16_t>::max()), maxk);
                     if (localMaxK > optimalK) {
-                        result = localMaxK / slope_scale *  quantizedParams->_src_quant.GetScale();
+                        result = localMaxK / slope_scale * quantizedParams->_src_quant.GetScale();
                         optimalK = localMaxK;
                     }
                 }
@@ -101,15 +101,21 @@ class ScaleFactorPerLayer<InferenceEngine::CNNLayer *> {
             // probing one more quite good approximation for identity
             s = gna_slope(1.0, quantizedParams->_src_quant.GetScale(), identity_scale_factor / 2);
             auto scale_extra = s.slope * s.slope_scale;
-            result = fabs(scale_extra) > fabs(scale_default) ?  identity_scale_factor / 2 : identity_scale_factor;
+            result = fabs(scale_extra) > fabs(scale_default) ? identity_scale_factor / 2 : identity_scale_factor;
 
+            result = quantizedParams->_src_quant.IsAgregatedDynamicRangeSet() ? quantizedParams->_src_quant.CalculateScaleFactorBasedOnDynamicRange(result) :
+                quantizedParams->_dst_quant.CalculateScaleFactorBasedOnDynamicRange(result);
 #endif
-        } else if (layer.isRelu() &&
-                static_cast<uint64_t>(activation_scale_factor * quantizedParams->_src_quant.GetScale())
-                                                            > std::numeric_limits<int32_t>::max()-1) {
+        }
+        else if (layer.isRelu() &&
+            static_cast<uint64_t>(activation_scale_factor * quantizedParams->_src_quant.GetScale())
+                                                            > std::numeric_limits<int32_t>::max() - 1) {
             // if activation is one from relu family, we need to apply heuristic to avoid activation output overflow
             result = (activation_scale_factor * 0.5);
-        } else if (layer.isPower()) {
+            result = quantizedParams->_src_quant.IsAgregatedDynamicRangeSet() ? quantizedParams->_src_quant.CalculateScaleFactorBasedOnDynamicRange(result) :
+                quantizedParams->_dst_quant.CalculateScaleFactorBasedOnDynamicRange(result);
+        }
+        else if (layer.isPower()) {
             auto powerLayer = dynamic_cast<InferenceEngine::PowerLayer const*>(cnnLayer);
             if (!powerLayer) {
                 THROW_IE_EXCEPTION << "Incorrect Power Layer pointer \n";
@@ -134,6 +140,9 @@ class ScaleFactorPerLayer<InferenceEngine::CNNLayer *> {
             if (!std::isinf(scale_val)) {
                 result = scale_val;
             }
+        }
+        else if (quantizedParams->_dst_quant.IsAgregatedDynamicRangeSet()) {
+            result = quantizedParams->_dst_quant.CalculateScaleFactorBasedOnDynamicRange(result);
         }
 
         if (!quantizedParams->_dst_quant.GetMaxValues().empty()) {
