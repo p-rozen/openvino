@@ -16,14 +16,6 @@ void FP::infer() {
     if (!dnn) {
         THROW_GNA_EXCEPTION << "[GNA FP32 RUNTIME] not initialized";
     }
-#ifdef GEN_STATS
-    if (NULL == stats_) {
-        stats_ = new StatisticsDao(dnn->component.size());
-        for (uint32_t i = 0; i < dnn->component.size(); i++) {
-            stats_->UpdateLayerName(i, dnn->component[i].original_layer_name);
-        }
-    }
-#endif
 
     for (uint32_t i = 0; i < dnn->component.size(); i++) {
         intel_dnn_component_t *comp = &dnn->component[i];

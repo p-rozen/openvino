@@ -326,7 +326,17 @@ GNAPlugin::GNAPlugin(const std::map<std::string, std::string>& configMap) {
     SetConfig(configMap);
 }
 
+GNAPlugin::~GNAPlugin() {
+#ifdef GEN_STATS
+    if (stats_) {
+        stats_->Serialize("layer_statistics.txt");
+        delete stats_;
+    }
+#endif
+}
+
 void GNAPlugin::Init() {
+    stats_ = nullptr;
     dnn = std::make_shared<backend::AMIntelDNN>(backend::AMIntelDNN());
     inputsDesc = std::make_shared<GNAPluginNS::InputDesc>(GNAPluginNS::InputDesc());
     gnaFlags = std::make_shared<GNAPluginNS::GNAFlags>(GNAPluginNS::GNAFlags());
@@ -882,7 +892,9 @@ void GNAPlugin::LoadNetwork(CNNNetwork & _network) {
     num_rotate_output_columns = dnn->num_rotate_output_columns;
 
     DumpXNNToFile();
-
+    if (gnaFlags->sw_fp32) {
+        auto runtime = runtime::FP(dnn);
+    }
 #ifdef PLOT
     dnn->WriteGraphWizModel("gna-blob.dot");
 #endif
@@ -1108,7 +1120,16 @@ uint32_t GNAPlugin::QueueInference(const InferenceEngine::BlobMap &inputs, Infer
     }
     // If there is no gnadevice infer using reference FP32 transforamtions
     if (!gnadevice) {
-        auto runtime = runtime::FP(dnn);
+#ifdef GEN_STATS
+        if (nullptr == stats_) {
+            stats_ = new StatisticsDao(dnn->component.size());
+            for (uint32_t i = 0; i < dnn->component.size(); i++) {
+                stats_->UpdateLayerName(i, dnn->component[i].original_layer_name);
+            }
+        }
+#endif
+
+        auto runtime = runtime::FP(dnn, stats_);
         runtime.infer();
         if (freeNnet != nnets.end()) {
             std::get<1>(*freeNnet) = 1;

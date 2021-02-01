@@ -23,6 +23,7 @@
 #include "gna_plugin_policy.hpp"
 #include "gna_plugin_log.hpp"
 #include "gna_plugin_config.hpp"
+#include "backend/stats_dao.hpp"
 
 #if GNA_LIB_VER == 2
 #include <gna2-model-api.h>
@@ -95,6 +96,7 @@ class GNAPlugin : public InferenceEngine::IInferencePlugin {
      * @brief construct from aot rather then from cnn network
      */
     GNAPlugin();
+    ~GNAPlugin() override;
 
     std::string GetName() const noexcept override;
     void SetName(const std::string & pluginName) noexcept override;
@@ -224,6 +226,8 @@ class GNAPlugin : public InferenceEngine::IInferencePlugin {
     void UpdateFieldsFromConfig();
     void UpdateGnaQuantModeFromNetwork(InferenceEngine::CNNNetwork &);
     void UpdateInputScaleFromNetwork(InferenceEngine::CNNNetwork &);
+
+    StatisticsDao* stats_;
 };
 
 }  // namespace GNAPluginNS

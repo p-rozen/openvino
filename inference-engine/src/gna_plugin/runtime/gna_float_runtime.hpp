@@ -19,19 +19,14 @@ class FP {
     std::shared_ptr<backend::AMIntelDNN> dnn;
  public:
 #ifdef GEN_STATS
-    FP(std::shared_ptr<backend::AMIntelDNN> dnn) : dnn(dnn), stats_(nullptr) {
+    FP(std::shared_ptr<backend::AMIntelDNN> dnn, StatisticsDao* stats = nullptr) : dnn(dnn), stats_(stats) {
 #else
      FP(std::shared_ptr<backend::AMIntelDNN> dnn) : dnn(dnn) {
 #endif
     }
     virtual ~FP() {
-#ifdef GEN_STATS
-        if (stats_) {
-            stats_->Serialize("layer_statistics.txt");
-            delete stats_;
-        }
-#endif
     }
+
     virtual void infer();
 
     /**
