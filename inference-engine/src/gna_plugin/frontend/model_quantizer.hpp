@@ -87,8 +87,8 @@ class ModelQuantizer {
             auto curr_quant_data = InferenceEngine::getInjectedData<QuantizedLayerParams>(layer);
             if (curr_quant_data) {
                 if (layer->insData.size()) {
-                    curr_quant_data->_dst_quant.SetAgregatedDynamicRange(25.0f / SCALE_FACTOR_GUARDBAND);
-                    curr_quant_data->_src_quant.SetAgregatedDynamicRange(25.0f / SCALE_FACTOR_GUARDBAND);
+                    curr_quant_data->_dst_quant.SetAgregatedDynamicRange(32.0f / SCALE_FACTOR_GUARDBAND);
+                    curr_quant_data->_src_quant.SetAgregatedDynamicRange(32.0f / SCALE_FACTOR_GUARDBAND);
                 }
             }
             index++;
