@@ -1998,20 +1998,18 @@ void MoveFakeQuantizeLayerIntoQuantParamsPass :: run() {
 }
 
 int PassManager::run(int index) {
-#if defined PLOT || defined ENABLE_V7_SERIALIZE
+//#ifdef PLOT
     auto dumpNetworkAfterPass = [&index, this] (std::shared_ptr<Pass> pass) {
         std::string name = std::string("gna_passes_") + (index < 10 ? "0" : "") + std::to_string(index) + "_" + pass->getName();
-#ifdef PLOT
-        std::ofstream out(name + ".dot");
-        saveGraphToDot(network, out, [](const CNNLayerPtr layer,
-                                        ordered_properties &printed_properties,
-                                        ordered_properties &node_properties) {});
-#endif
+        //std::ofstream out(name + ".dot");
+        //saveGraphToDot(network, out, [](const CNNLayerPtr layer,
+        //                                ordered_properties &printed_properties,
+        //                                ordered_properties &node_properties) {});
         network.serialize(name + ".xml", name + ".bin");
     };
-#else
-    auto dumpNetworkAfterPass = [] (std::shared_ptr<Pass> ) {};
-#endif
+//#else
+//    auto dumpNetworkAfterPass = [] (std::shared_ptr<Pass> ) {};
+//#endif
 
     for (auto && pass : passes) {
         if (settings.runBeforeCopy != pass->runBeforeCopyPass()) {
