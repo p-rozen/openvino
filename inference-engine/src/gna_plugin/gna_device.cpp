@@ -18,6 +18,7 @@
 #include "gna2-instrumentation-api.h"
 #include "gna2-memory-api.h"
 #include "gna2_model_export_helper.hpp"
+#include <gna2-tlv-writer.h>
 #else
 #include "gna-api-status.h"
 #include "gna-api.h"
@@ -420,6 +421,13 @@ void GNADeviceHelper::dumpXnnForDeviceVersion(
     outStream.write("Gna2ModelSueCreekHeader", 24);
     outStream.write(reinterpret_cast<const char*>(&sueHeader), sizeof(sueHeader));
 }
+
+void GNADeviceHelper::dumpTLVForDeviceVersion(const uint32_t modelId, std::ostream& outStream,
+    Gna2DeviceVersion targetDeviceVersion, uint32_t input_size, uint32_t output_size)
+{
+    ExportTlvModel(modelId, outStream, targetDeviceVersion, input_size, output_size);
+}
+
 #endif
 
 #if GNA_LIB_VER == 1
