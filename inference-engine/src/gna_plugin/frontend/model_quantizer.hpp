@@ -14,6 +14,7 @@
 #include "layer_quantizer.hpp"
 #include "scale_factor_calc.hpp"
 #include "weights_converter.hpp"
+#include "backend/stats_dao.hpp"
 
 namespace GNAPluginNS {
 
@@ -76,6 +77,123 @@ class ModelQuantizer {
             quantData->_src_quant.SetScale(scaleFactor[scaleIndex]);
             scaleIndex++;
         }
+        const float MIN_DYNAMIC_RANGE = 1e-20f;
+        //StatisticsDao* stats = nullptr;
+
+        StatisticsDao* stats = StatisticsDao::Deserialize("layer_statistics.txt");
+        int index = 0;
+        for (auto& layer : sortedNewNet) {
+            auto curr_quant_data = InferenceEngine::getInjectedData<QuantizedLayerParams>(layer);
+            if (curr_quant_data) {
+                if (layer->insData.size()) {
+                    curr_quant_data->_dst_quant.SetAgregatedDynamicRange(64.0f / SCALE_FACTOR_GUARDBAND);
+                    curr_quant_data->_src_quant.SetAgregatedDynamicRange(64.0f / SCALE_FACTOR_GUARDBAND);
+                }
+            }
+            index++;
+        }
+
+        if (stats) {
+            for (auto& layer : sortedNewNet) {
+                auto quantData = InferenceEngine::getInjectedData<QuantizedLayerParams>(layer);
+                int layer_id = stats->GetLayerId(layer->name.c_str());
+                if (quantData && layer_id >= 0) {
+                    float min, max;
+                    stats->GetMinMax(layer_id, StatisticsDao::stats_type_e::OUTPUT, min, max);
+                    // if min > max - scale factor not set
+                    if (max > min) {
+                        float absmax = max > -min ? max : -min;
+                        quantData->_dst_quant.SetDynamicRange(absmax);
+                    }
+                }
+            }
+            delete stats;
+            bool finished = false;
+            // overwrite dynamic range of input base on scale factor of input
+            // this is done to unify scaling factor for all chunks of inputs
+            for (auto& layer : sortedNewNet) {
+                auto it = LayerNameToType.find(layer->type);
+                if (it != LayerNameToType.end() && it->second == LayerType::Input)
+                {
+                    auto in_quant_data = InferenceEngine::getInjectedData<QuantizedLayerParams>(layer);
+                    in_quant_data->_src_quant.SetDynamicRange(MAX_VAL_2B_FEAT / in_quant_data->_src_quant.GetScale());
+                    in_quant_data->_src_quant.SetAgregatedDynamicRange(MAX_VAL_2B_FEAT / in_quant_data->_src_quant.GetScale());
+                    in_quant_data->_dst_quant.SetDynamicRange(MAX_VAL_2B_FEAT / in_quant_data->_src_quant.GetScale());
+                    in_quant_data->_dst_quant.SetAgregatedDynamicRange(MAX_VAL_2B_FEAT / in_quant_data->_src_quant.GetScale());
+                }
+            }
+            while (!finished) {
+                finished = true;
+                for (auto& layer : sortedNewNet) {
+                    auto curr_quant_data = InferenceEngine::getInjectedData<QuantizedLayerParams>(layer);
+                    if (curr_quant_data) {
+                        if (layer->insData.size()) {
+                            float agg_dynamic_range = 0.0f;
+                            for (auto in_layer_ptr : layer->insData) {
+                                auto in_layer = getCreatorLayer(in_layer_ptr.lock()).lock();
+                                auto in_quant_data = InferenceEngine::getInjectedData<QuantizedLayerParams>(in_layer);
+                                if (in_quant_data && (in_quant_data->_dst_quant.IsDynamicRangeSet() ||
+                                    in_quant_data->_dst_quant.IsAgregatedDynamicRangeSet())) {
+                                    // if this is first visit - we need to take dynamic range, which is not aggregated yet
+                                    agg_dynamic_range = agg_dynamic_range > in_quant_data->_dst_quant.GetDynamicRange() ?
+                                        agg_dynamic_range : in_quant_data->_dst_quant.GetDynamicRange();
+                                    // and aggregated one too
+                                    agg_dynamic_range = agg_dynamic_range > in_quant_data->_dst_quant.GetAgregatedDynamicRange() ?
+                                        agg_dynamic_range : in_quant_data->_dst_quant.GetAgregatedDynamicRange();
+                                }
+                            }
+
+                            if (!LayerInfo(layer).isChangingDynamicRange()) {
+                                agg_dynamic_range = agg_dynamic_range > curr_quant_data->_src_quant.GetAgregatedDynamicRange() ?
+                                    agg_dynamic_range : curr_quant_data->_src_quant.GetAgregatedDynamicRange();
+                                agg_dynamic_range = agg_dynamic_range > curr_quant_data->_dst_quant.GetAgregatedDynamicRange() ?
+                                    agg_dynamic_range : curr_quant_data->_dst_quant.GetAgregatedDynamicRange();
+                                if (agg_dynamic_range > curr_quant_data->_src_quant.GetAgregatedDynamicRange() ||
+                                    agg_dynamic_range > curr_quant_data->_dst_quant.GetAgregatedDynamicRange())
+                                {
+                                    if (!curr_quant_data->_src_quant.IsAgregatedDynamicRangeSet())
+                                        finished = false;
+                                    curr_quant_data->_src_quant.SetAgregatedDynamicRange(agg_dynamic_range);
+                                    if (!curr_quant_data->_dst_quant.IsAgregatedDynamicRangeSet())
+                                        finished = false;
+                                    curr_quant_data->_dst_quant.SetAgregatedDynamicRange(agg_dynamic_range);
+                                }
+                            }
+                            else {
+                                if (curr_quant_data->_src_quant.GetAgregatedDynamicRange() < agg_dynamic_range)
+                                    finished = false;
+                                curr_quant_data->_src_quant.SetAgregatedDynamicRange(agg_dynamic_range);
+                            }
+                            if (agg_dynamic_range > MIN_DYNAMIC_RANGE) {
+                                for (auto& in_layer_ptr : layer->insData)
+                                {
+                                    auto in_layer = getCreatorLayer(in_layer_ptr.lock()).lock();
+                                    auto in_quant_data = InferenceEngine::getInjectedData<QuantizedLayerParams>(in_layer);
+                                    if (in_quant_data)
+                                    {
+                                        if (in_quant_data->_dst_quant.GetAgregatedDynamicRange() < agg_dynamic_range)
+                                        {
+                                            in_quant_data->_dst_quant.SetAgregatedDynamicRange(agg_dynamic_range);
+                                            finished = false;
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        //for (auto &layer : sortedNewNet)
+        //{
+        //    auto curr_quant_data = InferenceEngine::getInjectedData<QuantizedLayerParams>(layer);
+        //    printf("Dynamic range of layer: %s Input: %.5f Output: %.5f Scale factors: %.5f/%.5f/%.5f\n", layer->name.c_str(),
+        //        curr_quant_data->_src_quant.agg_dynamic_range,
+        //        curr_quant_data->_dst_quant.agg_dynamic_range,
+        //        curr_quant_data->_src_quant.scale,
+        //        curr_quant_data->_weights_quant.scale,
+        //        curr_quant_data->_dst_quant.scale);
+        //}
 
         propagateScaleFactor(sortedNewNet, T::mandatory().getWeightsPrecision().size());
 

@@ -103,12 +103,18 @@ class ScaleFactorPerLayer<InferenceEngine::CNNLayer *> {
             auto scale_extra = s.slope * s.slope_scale;
             result = fabs(scale_extra) > fabs(scale_default) ?  identity_scale_factor / 2 : identity_scale_factor;
 
+            result = quantizedParams->_src_quant.IsAgregatedDynamicRangeSet() ? quantizedParams->_src_quant.CalculateScaleFactorBasedOnDynamicRange(result) :
+                quantizedParams->_dst_quant.CalculateScaleFactorBasedOnDynamicRange(result);
 #endif
         } else if (layer.isRelu() &&
                 static_cast<uint64_t>(activation_scale_factor * quantizedParams->_src_quant.GetScale())
                                                             > std::numeric_limits<int32_t>::max()-1) {
             // if activation is one from relu family, we need to apply heuristic to avoid activation output overflow
             result = (activation_scale_factor * 0.5);
+
+            result = quantizedParams->_src_quant.IsAgregatedDynamicRangeSet() ? quantizedParams->_src_quant.CalculateScaleFactorBasedOnDynamicRange(result) :
+                quantizedParams->_dst_quant.CalculateScaleFactorBasedOnDynamicRange(result);
+
         } else if (layer.isPower()) {
             auto powerLayer = dynamic_cast<InferenceEngine::PowerLayer const*>(cnnLayer);
             if (!powerLayer) {
@@ -134,6 +140,8 @@ class ScaleFactorPerLayer<InferenceEngine::CNNLayer *> {
             if (!std::isinf(scale_val)) {
                 result = scale_val;
             }
+        } else if (quantizedParams->_dst_quant.IsAgregatedDynamicRangeSet()) {
+            result = quantizedParams->_dst_quant.CalculateScaleFactorBasedOnDynamicRange(result);
         }
 
         if (!quantizedParams->_dst_quant.GetMaxValues().empty()) {

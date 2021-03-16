@@ -95,7 +95,10 @@ std::shared_ptr<opset1::StridedSlice> FlatCrop(Output<Node> input, size_t offset
             ngraph::opset1::Constant::create(ngraph::element::i64, ngraph::Shape{ 1 }, { offset + size }), // end slice index
             ngraph::opset1::Constant::create(ngraph::element::i64, ngraph::Shape{ 1 }, { 1 }), // strides
             std::vector<int64_t>{0}, // begin mask
-            std::vector<int64_t>{0} // end mask
+            std::vector<int64_t>{0}, // end mask
+            std::vector<int64_t>{0},
+            std::vector<int64_t>{0},
+            std::vector<int64_t>{0}
         );
     }
     else if (shape.size() == 2) {
@@ -105,7 +108,10 @@ std::shared_ptr<opset1::StridedSlice> FlatCrop(Output<Node> input, size_t offset
             ngraph::opset1::Constant::create(ngraph::element::i64, ngraph::Shape{ 2 }, { (size_t)0, offset + size }), // end slice index
             ngraph::opset1::Constant::create(ngraph::element::i64, ngraph::Shape{ 2 }, { (size_t)1, (size_t)1 }), // strides
             std::vector<int64_t>{1, 0}, // begin mask
-            std::vector<int64_t>{1, 0} // end mask
+            std::vector<int64_t>{1, 0}, // end mask
+            std::vector<int64_t>{0, 0},
+            std::vector<int64_t>{0, 0},
+            std::vector<int64_t>{0, 0}
         );
     }
     return nullptr;

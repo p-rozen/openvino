@@ -4,6 +4,8 @@
 
 #pragma once
 
+#define SCALE_FACTOR_GUARDBAND 1.25f
+
 namespace GNAPluginNS {
 
 class Quantization {
@@ -38,13 +40,49 @@ public:
     const std::vector<float>& GetMaxValues() const {
         return max_values;
     }
+    void SetAgregatedDynamicRange(float dyn_range) {
+        agg_dyn_range_ = dyn_range;
+        agg_dyn_range_set_ = true;
+    }
+    float GetAgregatedDynamicRange() const {
+        return agg_dyn_range_;
+    }
+    bool IsAgregatedDynamicRangeSet() const {
+        return agg_dyn_range_set_;
+    }
 
+    void SetDynamicRange(float dyn_range) {
+        dyn_range_ = dyn_range;
+        dyn_range_set_ = true;
+    }
+    float GetDynamicRange() const {
+        return dyn_range_;
+    }
+    bool IsDynamicRangeSet() const {
+        return dyn_range_set_;
+    }
+
+    float CalculateScaleFactorBasedOnDynamicRange(float default_scale)
+    {
+        if (agg_dyn_range_set_) {
+            float sf = 32768.0f / ceil(agg_dyn_range_ * SCALE_FACTOR_GUARDBAND);
+            return sf;
+        }
+        else {
+            return scale_set ? scale : default_scale;
+        }
+    }
 private:
     float scale = 1.0f;
     bool scale_set = false;
     int32_t levels = 0;
     std::vector<float> min_values;
     std::vector<float> max_values;
+
+    float dyn_range_ = 0.0f;
+    bool dyn_range_set_ = false;
+    float agg_dyn_range_ = 0.0f;
+    bool agg_dyn_range_set_ = false;
 };
 
 struct QuantizedLayerParams {

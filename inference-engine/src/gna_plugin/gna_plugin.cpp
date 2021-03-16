@@ -689,7 +689,7 @@ void GNAPlugin::LoadNetwork(CNNNetwork & _network) {
         manager.register_pass<ngraph::pass::ConvertPriorBox>();
         manager.register_pass<ngraph::pass::Conv2dDecomposition>();
         manager.register_pass<ngraph::pass::CommonOptimizations>();
-        // manager.register_pass<ngraph::pass::Serialize>("irv10.xml", "irv10.bin", ngraph::pass::Serialize::Version::IR_V10);
+        manager.register_pass<ngraph::pass::Serialize>("irv10.xml", "irv10.bin", ngraph::pass::Serialize::Version::IR_V10);
         manager.register_pass<ngraph::pass::ConvertOpSet3ToOpSet2>();
         manager.register_pass<ngraph::pass::ConvertOpSet2ToOpSet1>();
         manager.register_pass<ngraph::pass::ConvertOpSet1ToLegacy>();
