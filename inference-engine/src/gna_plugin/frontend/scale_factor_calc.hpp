@@ -29,6 +29,47 @@ struct ScaleFactorUpdateResult {
     }
 };
 
+template<class T>
+class PrecomputedScaleFactorPerLayer {
+public:
+    /**
+     * @brief calculates weights scale factor for fit dynamic range into target bitsize,
+     * also calculates output scale factor for the given layer
+     * @param cnnLayer
+     * @param weightsSize
+     * @param result
+     * @return
+     */
+    bool operator()(T cnnLayer, int weightsSize, ScaleFactorUpdateResult& result) {
+        auto quant = InferenceEngine::getInjectedData<QuantizedLayerParams>(*cnnLayer);
+        try {
+            quant->_src_quant.SetScale(std::stod(cnnLayer->params["input_scale"]));
+        }
+        catch (...) {
+            quant->_src_quant.SetScale(-1);
+        }
+        try {
+            quant->_dst_quant.SetScale(std::stod(cnnLayer->params["output_scale"]));
+        }
+        catch (...) {
+            quant->_dst_quant.SetScale(-1);
+        }
+        try {
+            quant->_weights_quant.SetScale(std::stod(cnnLayer->params["weight_scale"]));
+        }
+        catch (...) {
+            quant->_weights_quant.SetScale(-1);
+        }
+        try {
+            quant->_bias_quant.SetScale(std::stod(cnnLayer->params["bias_scale"]));
+        }
+        catch (...) {
+            quant->_bias_quant.SetScale(-1);
+        }
+        return true;
+    }
+};
+
 /**
  * @brief calculates output scale factor per layer
  * @tparam T
@@ -52,8 +93,8 @@ class ScaleFactorPerLayer {
 template<>
 class ScaleFactorPerLayer<InferenceEngine::CNNLayer *> {
  private :
-    const float activation_scale_factor = 2048.f;
-    const float identity_scale_factor = 2049.0f;
+    const float activation_scale_factor = 1024.0f;
+    const float identity_scale_factor = 2048.0f;
     const float k = 5;
     const float k_identity = 6;
     const double pow_domain = 16;
@@ -103,15 +144,19 @@ class ScaleFactorPerLayer<InferenceEngine::CNNLayer *> {
             auto scale_extra = s.slope * s.slope_scale;
             result = fabs(scale_extra) > fabs(scale_default) ? identity_scale_factor / 2 : identity_scale_factor;
 
+            //result = quantizedParams->_dst_quant.IsAgregatedDynamicRangeSet() ? quantizedParams->_dst_quant.CalculateScaleFactorBasedOnDynamicRange(result) :
+            //    quantizedParams->_src_quant.CalculateScaleFactorBasedOnDynamicRange(result);
+
             result = quantizedParams->_src_quant.IsAgregatedDynamicRangeSet() ? quantizedParams->_src_quant.CalculateScaleFactorBasedOnDynamicRange(result) :
                 quantizedParams->_dst_quant.CalculateScaleFactorBasedOnDynamicRange(result);
 #endif
         }
-        else if (layer.isRelu() &&
-            static_cast<uint64_t>(activation_scale_factor * quantizedParams->_src_quant.GetScale())
+        else if (layer.isRelu()) {
+            if (static_cast<uint64_t>(activation_scale_factor * quantizedParams->_src_quant.GetScale())
                                                             > std::numeric_limits<int32_t>::max() - 1) {
-            // if activation is one from relu family, we need to apply heuristic to avoid activation output overflow
-            result = (activation_scale_factor * 0.5);
+                // if activation is one from relu family, we need to apply heuristic to avoid activation output overflow
+                result = (activation_scale_factor * 0.5);
+            }
             result = quantizedParams->_src_quant.IsAgregatedDynamicRangeSet() ? quantizedParams->_src_quant.CalculateScaleFactorBasedOnDynamicRange(result) :
                 quantizedParams->_dst_quant.CalculateScaleFactorBasedOnDynamicRange(result);
         }
@@ -248,6 +293,7 @@ class ScaleFactorPerLayer<InferenceEngine::CNNLayer *> {
         }
 
         if (cnnLayer->type == "Const") {
+            printf("Const: %s\n", cnnLayer->name.c_str());
             if (quant->_dst_quant.IsScaleSet()) {
                 quant->_src_quant = quant->_dst_quant;
                 return ScaleFactorUpdateResult();
@@ -279,7 +325,8 @@ class ScaleFactorPerLayer<InferenceEngine::CNNLayer *> {
 
             auto abs_val = std::max(std::abs(max_val), std::abs(min_val));
             auto scale_val = static_cast<float>(std::numeric_limits<int16_t>::max()) / abs_val;
-
+            if (scale_val > 4096)
+                scale_val = 4096;
             // TODO: Investigate what should be the scale in such cases (31910)
             if (std::isinf(scale_val)) {
                 quant->_dst_quant.SetScale(quant->_src_quant.GetScale());
@@ -377,6 +424,7 @@ class ScaleFactorPerLayer<InferenceEngine::EltwiseLayer*> {
                                 continue;
                             } else if (info.has16BOutput() && info.isActivation()) {
                                 auto newOutputScale = quantParams->_dst_quant.GetScale() / maxValue;
+
                                 if (newOutputScale > static_cast<float>(std::numeric_limits<int16_t>::max()) / 2) {
                                     break;
                                 }
@@ -657,8 +705,15 @@ class ScaleFactorPerLayer<InferenceEngine::WeightableLayer*> {
 
                     if (quant->_dst_quant.IsAgregatedDynamicRangeSet())
                     {
-                        float scale = MAX_VAL_4B_BIAS / ceil(quant->_dst_quant.GetAgregatedDynamicRange() * SCALE_FACTOR_GUARDBAND);
-                        quant->_bias_quant.SetScale(std::min(scale, quant->_bias_quant.GetScale()));
+                        float scale = quant->_dst_quant.CalculateScaleFactorBasedOnDynamicRange(quant->_dst_quant.GetScale(), (float)(MAX_VAL_4B_BIAS));
+                        //ceil(quant->_dst_quant.GetAgregatedDynamicRange() * SCALE_FACTOR_GUARDBAND);
+                        float min_of_scale = std::min(scale, quant->_bias_quant.GetScale());
+
+                        float bias_scale = 1.0f;
+                        while (bias_scale * 2.0 < min_of_scale)
+                            bias_scale *= 2.0;
+
+                        quant->_bias_quant.SetScale(bias_scale);
                     }
 
                     quant->_weights_quant.SetScale(quant->_bias_quant.GetScale() / quant->_src_quant.GetScale());
@@ -671,14 +726,14 @@ class ScaleFactorPerLayer<InferenceEngine::WeightableLayer*> {
             }
 
             double weights_reducer = 1.0;
-            auto conv = dynamic_cast<InferenceEngine::ConvolutionLayer *>(wl);
-            if (conv) {
-                auto dims = conv->insData.front().lock()->getDims();
+            //auto conv = dynamic_cast<InferenceEngine::ConvolutionLayer *>(wl);
+            //if (conv) {
+            //    auto dims = conv->insData.front().lock()->getDims();
 
-                weights_reducer = MAX_VAL_2B_FEAT * scaleRange * dims[1] / std::numeric_limits<int32_t>::max();
-                weights_reducer = std::max(1.0, weights_reducer);
-            }
-            quant->_weights_quant.SetScale(quant->_weights_quant.GetScale() / weights_reducer);
+            //    weights_reducer = MAX_VAL_2B_FEAT * scaleRange * dims[1] / std::numeric_limits<int32_t>::max();
+            //    weights_reducer = std::max(1.0, weights_reducer);
+            //}
+            //quant->_weights_quant.SetScale(quant->_weights_quant.GetScale() / weights_reducer);
         }
 
         double tmp_dst_quant_scale = quant->_weights_quant.GetScale() * quant->_src_quant.GetScale();
@@ -754,9 +809,18 @@ class ScaleFactorCalculator {
     bool operator()(T ptr) const {
         needRestart = false;
         frontend::ScaleFactorUpdateResult result;
-        if (!frontend::ScaleFactorPerLayer<T>()(ptr, weightsBytesSize, result)) {
-            return false;
+        if (true)
+        {
+            if (!frontend::ScaleFactorPerLayer<T>()(ptr, weightsBytesSize, result)) {
+                return false;
+            }
         }
+        else {
+            if (!frontend::PrecomputedScaleFactorPerLayer<T>()(ptr, weightsBytesSize, result)) {
+                return false;
+            }
+        }
+
         if (result) {
             idx++;
             return true;

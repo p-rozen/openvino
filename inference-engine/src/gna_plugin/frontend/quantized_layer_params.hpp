@@ -63,10 +63,15 @@ public:
         return dyn_range_set_;
     }
 
-    float CalculateScaleFactorBasedOnDynamicRange(float default_scale)
+    float CalculateScaleFactorBasedOnDynamicRange(float default_scale, float range=32768.0f)
     {
+        float x = 1.0f;
         if (agg_dyn_range_set_) {
-            float sf = 32768.0f / ceil(agg_dyn_range_ * SCALE_FACTOR_GUARDBAND);
+            //float sf = 32768.0f / ceil(agg_dyn_range_ * SCALE_FACTOR_GUARDBAND);
+            while (x < agg_dyn_range_) {
+                x *= 2.0f;
+            }
+            float sf = range / x;
             return sf;
         } else {
             return scale_set ? scale : default_scale;

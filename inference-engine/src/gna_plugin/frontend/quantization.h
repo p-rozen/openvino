@@ -15,8 +15,8 @@
 #define MAX_VAL_1B_WEIGHT 127
 #define MAX_VAL_2B_WEIGHT 16384
 #define MAX_VAL_2B_FEAT 16384
-#define MAX_VAL_4B_BIAS 1073741824
-
+//#define MAX_VAL_4B_BIAS 1073741824
+#define MAX_VAL_4B_BIAS (1<<30)
 float CalcDynamicRange(void* ptr_float_memory, size_t num_elements);
 
 template <class WeightsType,  class BiasType>

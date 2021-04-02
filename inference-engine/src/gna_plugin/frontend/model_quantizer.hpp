@@ -87,8 +87,8 @@ class ModelQuantizer {
             auto curr_quant_data = InferenceEngine::getInjectedData<QuantizedLayerParams>(layer);
             if (curr_quant_data) {
                 if (layer->insData.size()) {
-                    curr_quant_data->_dst_quant.SetAgregatedDynamicRange(7.0f / SCALE_FACTOR_GUARDBAND);
-                    curr_quant_data->_src_quant.SetAgregatedDynamicRange(7.0f / SCALE_FACTOR_GUARDBAND);
+                    curr_quant_data->_dst_quant.SetAgregatedDynamicRange(5.f / SCALE_FACTOR_GUARDBAND);
+                    curr_quant_data->_src_quant.SetAgregatedDynamicRange(5.f / SCALE_FACTOR_GUARDBAND);
                 }
             }
             index++;
@@ -189,14 +189,41 @@ class ModelQuantizer {
         //{
         //    auto curr_quant_data = InferenceEngine::getInjectedData<QuantizedLayerParams>(layer);
         //    printf("Dynamic range of layer: %s Input: %.5f Output: %.5f Scale factors: %.5f/%.5f/%.5f\n", layer->name.c_str(),
-        //        curr_quant_data->_src_quant.agg_dynamic_range,
-        //        curr_quant_data->_dst_quant.agg_dynamic_range,
-        //        curr_quant_data->_src_quant.scale,
-        //        curr_quant_data->_weights_quant.scale,
-        //        curr_quant_data->_dst_quant.scale);
+        //        curr_quant_data->_src_quant.GetAgregatedDynamicRange(),
+        //        curr_quant_data->_dst_quant.GetAgregatedDynamicRange(),
+        //        curr_quant_data->_src_quant.GetScale(),
+        //        curr_quant_data->_weights_quant.GetScale(),
+        //        curr_quant_data->_dst_quant.GetScale());
         //}
 
         propagateScaleFactor(sortedNewNet, T::mandatory().getWeightsPrecision().size());
+        //for (auto& layer : sortedNewNet)
+        //{
+        //    auto curr_quant_data = InferenceEngine::getInjectedData<QuantizedLayerParams>(layer);
+        //    printf("Layer: %s Scale factors: %.5f/%.5f/%.5f\n", layer->name.c_str(),
+        //        curr_quant_data->_src_quant.GetScale(),
+        //        curr_quant_data->_weights_quant.GetScale(),
+        //        curr_quant_data->_dst_quant.GetScale());
+        //}
+#define DUMP_PREFINAL_IR
+#ifdef  DUMP_PREFINAL_IR
+        auto copiedNet2 = InferenceEngine::CNNNetCopy(copiedNet, visitor);
+        auto sortedNewNet2 = InferenceEngine::details::CNNNetSortTopologically(copiedNet2);
+        auto to_string_no_trailing_zeros = [](double x) {
+            std::string result = std::to_string(x);
+            result.erase(result.find_last_not_of('0') + 1, std::string::npos);
+            result.erase(result.find_last_not_of('.') + 1, std::string::npos);
+            return result;
+        };
+        for (int n = 0; n < sortedNewNet2.size(); n++) {
+            auto quant = InferenceEngine::getInjectedData<QuantizedLayerParams>(sortedNewNet[n]);
+            sortedNewNet2[n]->params["input_scale"] = to_string_no_trailing_zeros(quant->_src_quant.GetScale());
+            sortedNewNet2[n]->params["output_scale"] = to_string_no_trailing_zeros(quant->_dst_quant.GetScale());
+            sortedNewNet2[n]->params["weight_scale"] = to_string_no_trailing_zeros(quant->_weights_quant.GetScale());
+            sortedNewNet2[n]->params["bias_scale"] = to_string_no_trailing_zeros(quant->_bias_quant.GetScale());
+        }
+        copiedNet2.serialize("prefinal.xml", "prefinal.bin");
+#endif
 
         // sorted order gives possibility for propagate quantisation along depended layers
         for (auto &&layer : sortedNewNet) {
