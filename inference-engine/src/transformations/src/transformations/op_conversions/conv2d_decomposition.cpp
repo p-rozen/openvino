@@ -468,7 +468,7 @@ bool ngraph::pass::Conv2dDecomposition::run_on_function(std::shared_ptr<ngraph::
                             single_row_concat_inputs.push_back(slice);
                         }
                     }
-                    auto padded_row_concat = std::make_shared<opset1::Concat>(single_row_concat_inputs, 0);
+                    auto padded_row_concat = std::make_shared<opset1::Concat>(single_row_concat_inputs, not_padded_row->get_shape().size()-1);
                     ngraph::copy_runtime_info(conv, padded_row_concat);
                     input_rows_to_concat.push_back(padded_row_concat);
                 }
