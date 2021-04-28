@@ -212,7 +212,7 @@ bool ngraph::pass::Conv2dDecomposition::run_on_function(std::shared_ptr<ngraph::
         auto trailing_transpose = std::dynamic_pointer_cast<Transpose>(output_0_node);
         auto conv_bias = std::dynamic_pointer_cast<ngraph::opset1::Add>(output_0_node);
         auto max_pool = std::dynamic_pointer_cast<ngraph::opset1::MaxPool>(output_0_node);
-        auto af = std::dynamic_pointer_cast<ngraph::op::util::UnaryElementwiseArithmetic>(output_0_node);
+        auto af = std::dynamic_pointer_cast<Node>(output_0_node);
         std::shared_ptr<Node>last_op_in_sequence_for_replacement = trailing_transpose;
 
         std::shared_ptr<ngraph::Node> bias_const;
@@ -239,6 +239,9 @@ bool ngraph::pass::Conv2dDecomposition::run_on_function(std::shared_ptr<ngraph::
                                 auto bias_output_0_node = bias_output_0.begin()->get_node()->shared_from_this();
                                 max_pool = std::dynamic_pointer_cast<ngraph::opset1::MaxPool>(bias_output_0_node);
                                 af = std::dynamic_pointer_cast<ngraph::op::util::UnaryElementwiseArithmetic>(bias_output_0_node);
+                                if (!af) {
+                                    af = std::dynamic_pointer_cast<ngraph::op::PRelu>(bias_output_0_node);
+                                }
                             }
                         }
                     }
@@ -255,6 +258,9 @@ bool ngraph::pass::Conv2dDecomposition::run_on_function(std::shared_ptr<ngraph::
             last_op_in_sequence_for_replacement = trailing_transpose;
             max_pool = std::dynamic_pointer_cast<ngraph::opset1::MaxPool>(bias_output_0_node);
             af = std::dynamic_pointer_cast<ngraph::op::util::UnaryElementwiseArithmetic>(bias_output_0_node);
+            if (!af) {
+                af = std::dynamic_pointer_cast<ngraph::op::PRelu>(bias_output_0_node);
+            }
         }
         
         size_t pool_size_x = 1;
@@ -293,6 +299,9 @@ bool ngraph::pass::Conv2dDecomposition::run_on_function(std::shared_ptr<ngraph::
                 disable_nhwc_to_nchw_option = true;
             }
             af = std::dynamic_pointer_cast<ngraph::op::util::UnaryElementwiseArithmetic>(maxpool_output_0_node);
+            if (!af) {
+                af = std::dynamic_pointer_cast<ngraph::op::PRelu>(maxpool_output_0_node);
+            }
         }
 
         //and finally activation function
@@ -362,13 +371,12 @@ bool ngraph::pass::Conv2dDecomposition::run_on_function(std::shared_ptr<ngraph::
             output_height = output_shape[2];
             output_width = output_shape[3];
 
-            size_t pad_begin_n_end_y = output_height * filter_stride_y + filter_height * filter_dilation_y - input_height;
-            size_t pad_begin_n_end_x = output_width * filter_stride_x + filter_width * filter_dilation_x - input_width;
+            size_t pad_begin_n_end_y = output_height * filter_stride_y + (filter_height)* filter_dilation_y - input_height - 1;
+            size_t pad_begin_n_end_x = output_width * filter_stride_x + (filter_width) * filter_dilation_x - input_width - 1;
             pads_begin_y = (ngraph::op::PadType::SAME_LOWER == padding_type) ? (pad_begin_n_end_y >> 1) + (pad_begin_n_end_y & 1) : (pad_begin_n_end_y >> 1);
-            pads_end_y = (ngraph::op::PadType::SAME_UPPER == padding_type) ? (pad_begin_n_end_y >> 1) + (pad_begin_n_end_y & 1) : (pad_begin_n_end_y >> 1);
+            pads_end_y = (ngraph::op::PadType::SAME_UPPER == padding_type) ? (pad_begin_n_end_x >> 1) + (pad_begin_n_end_x & 1) : (pad_begin_n_end_x >> 1);
             pads_begin_x = (ngraph::op::PadType::SAME_LOWER == padding_type) ? (pad_begin_n_end_y >> 1) + (pad_begin_n_end_y & 1) : (pad_begin_n_end_y >> 1);
-            pads_end_x = (ngraph::op::PadType::SAME_UPPER == padding_type) ? (pad_begin_n_end_y >> 1) + (pad_begin_n_end_y & 1) : (pad_begin_n_end_y >> 1);
-
+            pads_end_x = (ngraph::op::PadType::SAME_UPPER == padding_type) ? (pad_begin_n_end_x >> 1) + (pad_begin_n_end_x & 1) : (pad_begin_n_end_x >> 1);
             break;
         }
         default:
@@ -474,7 +482,7 @@ bool ngraph::pass::Conv2dDecomposition::run_on_function(std::shared_ptr<ngraph::
                             single_row_concat_inputs.push_back(slice);
                         }
                     }
-                    auto padded_row_concat = std::make_shared<opset1::Concat>(single_row_concat_inputs, 0);
+                    auto padded_row_concat = std::make_shared<opset1::Concat>(single_row_concat_inputs, not_padded_row->get_shape().size()-1);
                     ngraph::copy_runtime_info(conv, padded_row_concat);
                     input_rows_to_concat.push_back(padded_row_concat);
                 }
@@ -616,7 +624,7 @@ bool ngraph::pass::Conv2dDecomposition::run_on_function(std::shared_ptr<ngraph::
                     size_t pool_size_x,
                     size_t pool_stride_x,
                     RoundingType rounding_type,
-                    std::shared_ptr<ngraph::op::util::UnaryElementwiseArithmetic> af,
+                    std::shared_ptr<Node> af,
                     size_t h_index,
                     size_t c_index = 0) {
                         // valid 1D convolution wrapped with permutes NHWC => NCHW => conv => NCHW => NHWC
@@ -641,7 +649,13 @@ bool ngraph::pass::Conv2dDecomposition::run_on_function(std::shared_ptr<ngraph::
                             last_conv_block_op = std::make_shared <opset1::MaxPool>(max_pool_x);
                         }
                         if (af) {
-                            auto af_result = af->copy_with_new_inputs({ last_conv_block_op });
+                            std::shared_ptr<Node> af_result;
+                            if (af->inputs().size() == 2) {
+                                af_result = af->copy_with_new_inputs({ last_conv_block_op, af->input_value(1) });
+                            } else {
+                                af_result = af->copy_with_new_inputs({ last_conv_block_op });
+                            }
+
                             ngraph::copy_runtime_info(conv, af_result);
                             last_conv_block_op = af_result;
                         }
@@ -690,7 +704,12 @@ bool ngraph::pass::Conv2dDecomposition::run_on_function(std::shared_ptr<ngraph::
 
         // activation function
         if (af && conv_count > 1) {
-            auto af_result = af->copy_with_new_inputs({ conv_result });
+            std::shared_ptr<Node> af_result;
+            if (af->inputs().size() == 2) {
+                af_result = af->copy_with_new_inputs({ conv_result, af->input_value(1) });
+            } else {
+                af_result = af->copy_with_new_inputs({ conv_result });
+            }
             ngraph::copy_runtime_info(conv, af_result);
             conv_result = af_result;
         }
