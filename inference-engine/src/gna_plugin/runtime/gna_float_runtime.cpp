@@ -11,21 +11,22 @@
 using namespace GNAPluginNS;
 using namespace GNAPluginNS::runtime;
 
-
 void FP::infer() {
     if (!dnn) {
         THROW_GNA_EXCEPTION << "[GNA FP32 RUNTIME] not initialized";
     }
 #ifdef GEN_STATS
-    if (NULL == stats_) {
-        stats_ = new StatisticsDao(dnn->component.size());
+    if (NULL == dnn->stats_) {
+        dnn->stats_ = new StatisticsDao(dnn->component.size());
         for (uint32_t i = 0; i < dnn->component.size(); i++) {
-            stats_->UpdateLayerName(i, dnn->component[i].original_layer_name);
+            dnn->stats_->UpdateLayerName(i, dnn->component[i].original_layer_name);
         }
     }
 #endif
+    intel_dnn_component_t* last_comp = nullptr;
     for (uint32_t i = 0; i < dnn->component.size(); i++) {
         intel_dnn_component_t *comp = &dnn->component[i];
+        last_comp = comp;
         uint32_t *ptr_active_outputs = nullptr;
         uint32_t num_active_outputs = (comp->orientation_out == kDnnInterleavedOrientation)
                                       ? comp->num_rows_out : comp->num_columns_out;
@@ -92,9 +93,9 @@ void FP::infer() {
                 THROW_GNA_EXCEPTION << "[GNA FP32 RUNTIME] Bad operation " << comp->operation;
         }
 #ifdef GEN_STATS
-        if (stats_) {
-            stats_->UpdateStatistics(i, StatisticsDao::stats_type_e::INPUT, reinterpret_cast<float*>(comp->ptr_inputs), comp->num_columns_in * comp->num_rows_in);
-            stats_->UpdateStatistics(
+        if (dnn->stats_) {
+            dnn->stats_->UpdateStatistics(i, StatisticsDao::stats_type_e::INPUT, reinterpret_cast<float*>(comp->ptr_inputs), comp->num_columns_in * comp->num_rows_in);
+            dnn->stats_->UpdateStatistics(
                 i,
                 StatisticsDao::stats_type_e::OUTPUT,
                 reinterpret_cast<float*>(comp->ptr_outputs),

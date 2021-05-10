@@ -513,6 +513,7 @@ bool ngraph::pass::Conv2dDecomposition::run_on_function(std::shared_ptr<ngraph::
             auto permute_before_channel_wise_split = builder::opset1::reorder_axes(reshape_before_permute, { 1ull, 0ull});
             auto reshape_after_permute = builder::opset1::reshape(permute_before_channel_wise_split,
                 Shape{ (size_t)conv_count, padded_input_plane->get_shape()[1] / conv_count });
+
             splitted_planes = builder::opset1::split(reshape_after_permute, conv_count, 0);
         } else {
             splitted_planes.push_back(padded_input_plane);

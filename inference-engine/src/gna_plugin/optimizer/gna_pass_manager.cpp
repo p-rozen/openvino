@@ -730,6 +730,8 @@ void InsertIdentityLayerPass::run() {
                     break;
                 }
             }
+            //if (LayerInfo(true_layer).has16BOutput())
+            //    continue;
             // check if prev layer have id layer already connected to output
             // if so reuse it instead of create new one
             bool reconnected = false;
@@ -805,6 +807,34 @@ void InsertIdentityLayerPass::run() {
             }
 
             CNNNetworkInsertLayer(prev, notAll ? true_layer : CNNLayerPtr(nullptr), activationLayerWithQuant);
+
+            bool restart = true;
+            // if we added identity - we should reconnect others
+            // we can't leave 16bit output & 32bit output active in parallel
+            // due to GNA HW limitations
+            while (restart) {
+                restart = false;
+                for (auto prev_layer_output : prev->outData) {
+                    // prev ---> identity -+-> layer XYZ
+                    //                     |
+                    //                     |  <= here we want to inject identity
+                    //                     |
+                    //                     +--> l layer
+                    // but we may just connect l layer with existing identity
+                    for (auto&& next_layer : getInputTo(prev_layer_output)) {
+                        auto child_of_prev_layer = next_layer.second;
+                        if (child_of_prev_layer.get() == activationLayerWithQuant.get()) {
+                            continue;
+                        }
+                        else {
+                            CNNNetworkReconnectLayer(prev, activationLayerWithQuant, child_of_prev_layer);
+                            // the iterator aquired by getInputTo is invalid, we need to restart
+                            restart = true;
+                            break;
+                        }
+                    }
+                }
+            }
         }
     }
 }
@@ -1111,6 +1141,104 @@ void InsertConcatAligningFilterPass::run() {
     }
 }
 
+//void ReorderConcatInputsPass::run() {
+//    auto quantized = InferenceEngine::getInjectedData<QuantizedLayerParams>(pLayers->front());
+//    // aligning specific not required in fp32 mode
+//    if (getPassManager()->getPolicy().ConcatAlignmentPolicy == Policy::ConcatAlignment::DISABLED_FOR_FP32 && !quantized) {
+//        return;
+//    }
+//
+//    int numOfLinkLayers = 0;
+//
+//    for (auto& l : *pLayers) {
+//        // 1st stage locate concat
+//        LayerInfo info(l);
+//        if (!info.isConcat()) {
+//            continue;
+//        }
+//
+//        // 2nd stage locate first input in concat
+//        if (l->insData.size() < 2) {
+//            THROW_GNA_EXCEPTION << "Concat layer has unsupported number of incoming layers: " << l->name;
+//        }
+//
+//        auto concatLayer = info.as<ConcatLayer*>();
+//        auto getLayerByIndex = [&concatLayer](int idx) {
+//            auto input = concatLayer->insData[idx];
+//            auto lockedInput = input.lock();
+//            if (!lockedInput) {
+//                THROW_GNA_EXCEPTION << "cannot get insdata : " << idx << " for layer: " << concatLayer->name;
+//            }
+//            return lockedInput;
+//        };
+//
+//        for (auto input_idx = 1; input_idx != concatLayer->insData.size(); input_idx++) {
+//            auto concatInput = getLayerByIndex(input_idx);
+//            auto currConcatLayer = getCreatorLayer(concatInput).lock();
+//
+//            LayerInfo infoConcatInput(currConcatLayer);
+//            if (!infoConcatInput.isConcatAlignFilter()) {
+//                continue;
+//            }
+//
+//            auto inputsToConcatPrev = CNNNetGetPrevLayersSkip(l, [](CNNLayerPtr origin) {
+//                return !LayerInfo(origin).isNonFunctional() && !LayerInfo(origin).isSplit();
+//                }, input_idx - 1);
+//
+//            if (inputsToConcatPrev.empty()) {
+//                THROW_GNA_EXCEPTION << "cannot locate first input into concat layer: " << currConcatLayer;
+//            }
+//
+//            auto prevInputToConcat = inputsToConcatPrev.front().first;
+//
+//            // concat has first input of concat align filter - dont need to reorder it
+//            if (prevInputToConcat == currConcatLayer) {
+//                continue;
+//            }
+//
+//            bool bFinish = false;
+//            // making a link activation possible without extra layer if first input to concat not a parent / indirect parent of second input
+//            // using ufs - upper first search
+//            gnalog() << "[UFS] searching for: " << prevInputToConcat->name << "\n";
+//
+//            CNNNetDFS(currConcatLayer, [&currConcatLayer, &prevInputToConcat, &bFinish](CNNLayerPtr layer) {
+//                gnalog() << "[UFS] from : " << currConcatLayer->name << " reached: " << layer->name << "\n";
+//                // found that direct input to concat is a indirect parent of align filter - so no link required
+//                if (layer.get() == prevInputToConcat.get() || LayerInfo(prevInputToConcat).isInput()) {
+//                    gnalog() << "[UFS] copy layer insertion needed\n";
+//                    bFinish = true;
+//                }
+//                }, true, [&bFinish](InferenceEngine::CNNLayer* from) {
+//                    // aborting UFS once link not needed
+//                    return make_upstream_order(!bFinish ? from : nullptr);
+//                });
+//
+//            auto linkName = std::string("link_") + std::to_string(numOfLinkLayers++);
+//
+//            auto linkWithoutQuant = std::make_shared<CNNLayer>(LayerParams({ linkName, "link", Precision::FP32 }));
+//
+//            auto link = quantized ?
+//                InferenceEngine::injectData<QuantizedLayerParams>(linkWithoutQuant) :
+//                linkWithoutQuant;
+//
+//
+//            auto linkOutData = std::make_shared<Data>(linkName,
+//                TensorDesc(Precision::FP32,
+//                    SizeVector({ 1 }),
+//                    Layout::C));
+//            getCreatorLayer(linkOutData) = link;
+//
+//            link->outData.push_back(linkOutData);
+//            link->insData.push_back(currConcatLayer->outData.front());
+//
+//            getInputTo(linkOutData)[prevInputToConcat->name + ".via.link"] = prevInputToConcat;
+//            prevInputToConcat->insData.push_back(linkOutData);
+//
+//            getInputTo(currConcatLayer->outData.front())[linkName] = link;
+//        }
+//    }
+//}
+
 void ReorderConcatInputsPass::run() {
     auto quantized = InferenceEngine::getInjectedData<QuantizedLayerParams>(pLayers->front());
     // aligning specific not required in fp32 mode
@@ -1207,7 +1335,6 @@ void ReorderConcatInputsPass::run() {
         }
     }
 }
-
 void InsertSplitAligningFilterPass::run() {
     // currently split layer only supports 2 bytes in int16 and int8 mode. In fp32 mode this is not necessary but is useful for testing
     const int bytesPerSplitElement = 2;

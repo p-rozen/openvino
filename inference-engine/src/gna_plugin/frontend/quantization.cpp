@@ -188,7 +188,7 @@ float ScaleFactorForQuantization(void *ptr_float_memory, float target_max, size_
     }
 
     if (max == 0) {
-        scale_factor = -1.0f;  // need to handle all zeros as a special case
+        scale_factor = target_max;  // need to handle all zeros as a special case
     } else {
         scale_factor = target_max / max;
     }

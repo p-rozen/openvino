@@ -81,6 +81,14 @@ GNAPluginNS::backend::AMIntelDNN::~AMIntelDNN() {
     if (ptr_priors != NULL) {
         _mm_free(ptr_priors);
     }
+#ifdef GEN_STATS
+    if (stats_) {
+        stats_->Serialize("layer_statistics.txt");
+        delete stats_;
+        stats_ = NULL;
+    }
+#endif
+
 }
 
 void GNAPluginNS::backend::AMIntelDNN::InitActiveList(uint32_t *ptr_active_list) {

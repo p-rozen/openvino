@@ -53,7 +53,7 @@ template<>
 class ScaleFactorPerLayer<InferenceEngine::CNNLayer *> {
  private :
     const float activation_scale_factor = 2048.f;
-    const float identity_scale_factor = 2049.0f;
+    const float identity_scale_factor = 2048.f;
     const float k = 5;
     const float k_identity = 6;
     const double pow_domain = 16;
@@ -646,14 +646,17 @@ class ScaleFactorPerLayer<InferenceEngine::WeightableLayer*> {
             }
 
             if (wl->_biases) {
-                quant->_bias_quant.SetScale(ScaleFactorForQuantization(wl->_biases->buffer().as<float *>(),
+                if (quant->_dst_quant.IsAgregatedDynamicRangeSet())
+                    quant->_bias_quant.SetScale(ScaleFactorForQuantization(wl->_biases->buffer().as<float*>(),
+                        MAX_VAL_4B_BIAS / quant->_dst_quant.GetAgregatedDynamicRange(),
+                        wl->_biases->size()));
+
+                else quant->_bias_quant.SetScale(ScaleFactorForQuantization(wl->_biases->buffer().as<float *>(),
                                                                       MAX_VAL_4B_BIAS,
                                                                       wl->_biases->size()));
-                if (quant->_bias_quant.GetScale() != -1.0f) {
-                    quant->_bias_quant.SetScale(
-                        std::min(quant->_weights_quant.GetScale() * quant->_src_quant.GetScale(), quant->_bias_quant.GetScale()));
-                    quant->_weights_quant.SetScale(quant->_bias_quant.GetScale() / quant->_src_quant.GetScale());
-                }
+                quant->_bias_quant.SetScale(
+                    std::min(quant->_weights_quant.GetScale() * quant->_src_quant.GetScale(), quant->_bias_quant.GetScale()));
+                quant->_weights_quant.SetScale(quant->_bias_quant.GetScale() / quant->_src_quant.GetScale());
             }
 
             // TODO: findout why ???

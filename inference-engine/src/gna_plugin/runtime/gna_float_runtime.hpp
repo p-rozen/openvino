@@ -3,12 +3,8 @@
 //
 
 #pragma once
-#define GEN_STATS
-#include <backend/am_intel_dnn.hpp>
 
-#ifdef GEN_STATS
-#include "backend/stats_dao.hpp"
-#endif
+#include <backend/am_intel_dnn.hpp>
 
 namespace GNAPluginNS {
 namespace runtime {
@@ -18,19 +14,9 @@ namespace runtime {
 class FP {
     std::shared_ptr<backend::AMIntelDNN> dnn;
  public:
-#ifdef GEN_STATS
-     FP(std::shared_ptr<backend::AMIntelDNN> dnn) : dnn(dnn), stats_(nullptr) {
-#else
      FP(std::shared_ptr<backend::AMIntelDNN> dnn) : dnn(dnn) {
-#endif
      }
      virtual ~FP() {
-#ifdef GEN_STATS
-         if (stats_) {
-             stats_->Serialize("layer_statistics.txt");
-             delete stats_;
-         }
-#endif
      }
     virtual void infer();
 
@@ -52,9 +38,6 @@ class FP {
     static void ApplyTranspose(intel_dnn_component_t *component);
     static void ApplyCopy(intel_dnn_component_t *component);
 protected:
-#ifdef GEN_STATS
-    StatisticsDao* stats_;
-#endif
 };
 
 }  // namespace runtime

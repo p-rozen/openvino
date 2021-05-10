@@ -86,8 +86,8 @@ class ModelQuantizer {
             auto curr_quant_data = InferenceEngine::getInjectedData<QuantizedLayerParams>(layer);
             if (curr_quant_data) {
                 if (layer->insData.size()) {
-                    curr_quant_data->_dst_quant.SetAgregatedDynamicRange(64.0f / SCALE_FACTOR_GUARDBAND);
-                    curr_quant_data->_src_quant.SetAgregatedDynamicRange(64.0f / SCALE_FACTOR_GUARDBAND);
+                    curr_quant_data->_dst_quant.SetAgregatedDynamicRange(5.0f / SCALE_FACTOR_GUARDBAND);
+                    curr_quant_data->_src_quant.SetAgregatedDynamicRange(5.0f / SCALE_FACTOR_GUARDBAND);
                 }
             }
             index++;
@@ -184,18 +184,19 @@ class ModelQuantizer {
                 }
             }
         }
-        //for (auto &layer : sortedNewNet)
-        //{
-        //    auto curr_quant_data = InferenceEngine::getInjectedData<QuantizedLayerParams>(layer);
-        //    printf("Dynamic range of layer: %s Input: %.5f Output: %.5f Scale factors: %.5f/%.5f/%.5f\n", layer->name.c_str(),
-        //        curr_quant_data->_src_quant.agg_dynamic_range,
-        //        curr_quant_data->_dst_quant.agg_dynamic_range,
-        //        curr_quant_data->_src_quant.scale,
-        //        curr_quant_data->_weights_quant.scale,
-        //        curr_quant_data->_dst_quant.scale);
-        //}
 
         propagateScaleFactor(sortedNewNet, T::mandatory().getWeightsPrecision().size());
+
+        for (auto &layer : sortedNewNet)
+        {
+            auto curr_quant_data = InferenceEngine::getInjectedData<QuantizedLayerParams>(layer);
+            printf("Dynamic range of layer: %s Input: %.5f Output: %.5f Scale factors: %.5f/%.5f/%.5f\n", layer->name.c_str(),
+                curr_quant_data->_src_quant.GetAgregatedDynamicRange(),
+                curr_quant_data->_dst_quant.GetAgregatedDynamicRange(),
+                curr_quant_data->_src_quant.GetScale(),
+                curr_quant_data->_weights_quant.GetScale(),
+                curr_quant_data->_dst_quant.GetScale());
+        }
 
         // sorted order gives possibility for propagate quantisation along depended layers
         for (auto &&layer : sortedNewNet) {

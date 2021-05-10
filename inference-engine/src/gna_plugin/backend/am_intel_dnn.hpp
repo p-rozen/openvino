@@ -11,6 +11,12 @@
 #include "dnn_types.h"
 #include "gna_types.h"
 
+#define GEN_STATS
+
+#ifdef GEN_STATS
+#include "backend/stats_dao.hpp"
+#endif
+
 #include "gna_plugin_log.hpp"
 
 #if GNA_LIB_VER == 2
@@ -22,8 +28,16 @@ namespace backend {
 
 class AMIntelDNN {
 public:
+#ifdef GEN_STATS
+    StatisticsDao* stats_;
+#endif
+
     AMIntelDNN()
-            : ptr_active_outputs_(NULL),
+            :
+#ifdef GEN_STATS
+        stats_(NULL),
+#endif
+              ptr_active_outputs_(NULL),
               num_active_outputs_(0),
               input_scale_factor_(1.0),
               num_left_context(0),
